@@ -1,0 +1,162 @@
+# FLUX.2 Dev — orph_light | CONTENT-weighted run (Phase 2, comp learning) | v1.0
+# Job name: FLUX2_orph_light_content_v1.0
+# Trigger word: orph_light
+# Pod: 1x H100 SXM 80GB slot on shared 2x H100 pod (parallel with orph_light_style_v1.0)
+# Dataset on pod: /app/ai-toolkit/datasets/orph_light (240 images + 240 .txt captions)
+# NOTE: dataset path on pod is unversioned (one dataset per ephemeral pod); local vault retains v1.0 lineage.
+#
+# Banodoco grant Phase 2. Paired with sibling style-weighted run (Phase 3,
+# orph_light_style_v1.0.yaml). Same dataset, same captions across both runs — only the
+# `content_or_style` flag differs. See: 08 Workshop/Banodoco-Grant - Execution TODO.md,
+# 08 Workshop/Banodoco-Grant - Comp LoRA Research Log.md §5.5.
+#
+# --- Parallel launch ---
+# This run shares a pod with orph_light_style_v1.0.yaml. Pin to GPU 0 via
+# `CUDA_VISIBLE_DEVICES=0` at launch (sibling pins to GPU 1). Output paths are disjoint
+# (driven by `name`) so no checkpoint collision. Combined burn ~$6.67/hr, ~12 H100-hours
+# against the 50-hr grant budget for the paired run.
+#
+# --- content_or_style: content ---
+# Biases timestep sampling toward HIGH NOISE (early steps of the schedule), where
+# large-scale structural learning happens — composition, value organization, eye-path,
+# light placement, focal-point geometry. This is the comp-LoRA: it should learn the
+# "orph_light" compositional language, not subject identity or surface texture.
+# See: reference_flux2_content_or_style memory.
+#
+# --- Versioning ---
+# Per feedback_lora_versioning: config + dataset + output all carry v1.0. Bump on any
+# change (single image added, learning rate tweak, etc.). Match local version to
+# CivitAI / Hugging Face release version.
+#
+# --- Forked from ---
+# 03 Production/Workshop/LoRA-Configs/FLUX2_Dev_dp_Room_Orph_Style.yaml (the actual
+# launched dp_room v1 run, 2026-04-29). All hyperparams confirmed correct on that run
+# are preserved here: network 128/64/64/32, weight_decay 0.00001, timestep_type weighted,
+# lr 0.0001, adamw8bit, qfloat8 quant, full multi-bucket resolution, sampling disabled.
+#
+# --- Material differences vs dp_room v1 archive ---
+# 1. name:                     FLUX2_orph_light_content_v1.0 (was dp_room_Orph_Style)
+# 1a. resolution:              adds 2048 bucket (dp_room v1 topped at 1536)
+# 2. trigger_word:             orph_light            (was dp_room)
+# 3. dataset folder_path:      versioned path        (was unversioned /app/ai-toolkit/datasets/dp_room)
+# 4. content_or_style:         content               (was style — this is the comp-LoRA)
+# 5. steps:                    15000                 (was 10000 — grant Phase 2/3 budget)
+# 6. save_every:               500                   (was 1000 — denser checkpointing this run)
+# 7. max_step_saves_to_keep:   35                    (15000/500 = 30 saves + 5 buffer for safety)
+#
+---
+job: "extension"
+config:
+  name: "FLUX2_orph_light_content_v1.0"
+  process:
+    - type: "diffusion_trainer"
+      training_folder: "/app/ai-toolkit/output"
+      sqlite_db_path: "./aitk_db.db"
+      device: "cuda"
+      trigger_word: "orph_light"
+      performance_log_every: 10
+      network:
+        type: "lora"
+        linear: 128
+        linear_alpha: 64
+        conv: 64
+        conv_alpha: 32
+        lokr_full_rank: true
+        lokr_factor: -1
+        network_kwargs:
+          ignore_if_contains: []
+      save:
+        dtype: "bf16"
+        save_every: 500
+        max_step_saves_to_keep: 35
+        save_format: "diffusers"
+        push_to_hub: false
+      datasets:
+        - folder_path: "/app/ai-toolkit/datasets/orph_light"
+          mask_path: null
+          mask_min_value: 0.1
+          default_caption: ""
+          caption_ext: "txt"
+          caption_dropout_rate: 0.05
+          cache_latents_to_disk: false
+          is_reg: false
+          network_weight: 1
+          resolution:
+            - 512
+            - 768
+            - 1024
+            - 256
+            - 1280
+            - 1328
+            - 1536
+            - 2048
+          controls: []
+          shrink_video_to_frames: true
+          num_frames: 1
+          flip_x: false
+          flip_y: false
+          num_repeats: 1
+          control_path_1: null
+          control_path_2: null
+          control_path_3: null
+      train:
+        batch_size: 1
+        bypass_guidance_embedding: false
+        steps: 15000
+        gradient_accumulation: 1
+        train_unet: true
+        train_text_encoder: false
+        gradient_checkpointing: true
+        noise_scheduler: "flowmatch"
+        optimizer: "adamw8bit"
+        timestep_type: "weighted"
+        content_or_style: "content"
+        optimizer_params:
+          weight_decay: 0.00001
+        unload_text_encoder: false
+        cache_text_embeddings: false
+        lr: 0.0001
+        ema_config:
+          use_ema: false
+          ema_decay: 0.99
+        skip_first_sample: false
+        force_first_sample: false
+        disable_sampling: true
+        dtype: "bf16"
+        diff_output_preservation: false
+        diff_output_preservation_multiplier: 1
+        diff_output_preservation_class: "person"
+        switch_boundary_every: 1
+        loss_type: "mse"
+      logging:
+        log_every: 1
+        use_ui_logger: true
+      model:
+        name_or_path: "black-forest-labs/FLUX.2-dev"
+        quantize: true
+        qtype: "qfloat8"
+        quantize_te: true
+        qtype_te: "qfloat8"
+        arch: "flux2"
+        low_vram: false
+        model_kwargs:
+          match_target_res: false
+        layer_offloading: false
+        layer_offloading_text_encoder_percent: 1
+        layer_offloading_transformer_percent: 1
+      sample:
+        sampler: "flowmatch"
+        sample_every: 250
+        width: 1024
+        height: 1024
+        samples: []
+        neg: ""
+        seed: 42
+        walk_seed: true
+        guidance_scale: 4
+        sample_steps: 30
+        num_frames: 1
+        fps: 1
+meta:
+  name: "[name]"
+  version: "1.0"

@@ -1,0 +1,165 @@
+# FLUX.2 Dev — orph_light | BALANCED run (the control/baseline) | v1.0
+# Job name: FLUX2_orph_light_balanced_v1.0
+# Trigger word: orph_light
+#
+# WHY THIS RUN — the control the decomposition experiment was missing.
+# content_v1.0 and style_v1.0 split the timestep budget (high-noise vs low-noise).
+# This run samples the FULL range (content_or_style: balanced) → learns composition
+# AND surface in ONE LoRA. It answers: "do I even need two LoRAs + a handoff, or does
+# one balanced LoRA give value-painting + composition in a single dial?"
+# Compare against content_6k / style_8k / handoff-D on the SAME prompts + seed
+# (185615215668291). See 08 Workshop/Comp LoRA - 12-Image Decomposition Test.md and
+# the Research Log §2026-06-06 findings.
+#
+# CLEAN-CONTROL DISCIPLINE: same dataset, same captions, same network, same lr — ONLY
+# content_or_style and steps differ from content_v1.0. Change nothing else or the
+# comparison is confounded.
+#
+# WHY 12k (not 7k): balanced spreads its gradient budget across the whole timestep range
+# and must reach competence on BOTH axes, so it likely converges LATER than the biased
+# runs. Your content run stayed useful out to 14k → expect the balanced peak ~8–14k.
+# A 7k cap risks an UNDERCOOKED balanced LoRA losing unfairly to well-baked content_6k/
+# style_8k. 12k captures the likely peak while staying near the >10k cliff style hit.
+# 500-step checkpoints (24 of them) let you find the real peak post-hoc in ComfyUI.
+#
+# COST (A100 80GB, solo): ~3–3.5 s/iter → 12k ≈ 10–11.5 hr ≈ ~$15–16 @ $1.40/hr.
+# (On H100 ~2.48 s/iter → ~8.3 hr, but pricier/hr — A100 wins on $ for this job.)
+# You have $10 → top up ~$6, OR drop the 2048 bucket below to cut ~time/cost (at the
+# price of strict comparability), OR run 7k as a cheap probe and read the trajectory.
+#
+# EARLY-STOP: disable_sampling stays true (matches the biased runs; test checkpoints in
+# ComfyUI after). If you'd rather watch live and kill early on plateau, set
+# disable_sampling:false + sample_every:1000 — small overhead, can save hours.
+#
+# DEPLOY NOTES:
+#  - Upload the dataset (240 imgs + 240 .txt) from the vault
+#    08 Workshop/Banodoco-Grant - Comp LoRA References/color-grade-BW-PNG/  →  the
+#    folder_path below. Same 240-caption set as content/style (do NOT re-caption).
+#  - Needs AI-Toolkit (ostris) on the pod, not ComfyUI. ~37 GB of checkpoints will
+#    accumulate (24 × 1.56 GB) — ensure output disk has room (or set save_every:1000 →
+#    12 ckpts ≈ 19 GB, coarser peak resolution but halves disk + cloud-sync risk).
+#  - Verify your AI-Toolkit build accepts content_or_style: "balanced" (some builds use
+#    the default when the flag is omitted — if "balanced" errors, just delete the line).
+#
+# --- Differences vs content_v1.0 (the ONLY intended changes) ---
+# 1. name:                   FLUX2_orph_light_balanced_v1.0
+# 2. content_or_style:       balanced   (was content)
+# 3. steps:                  12000      (was 15000)
+# 4. max_step_saves_to_keep: 28         (12000/500 = 24 saves + 4 buffer; keeps ALL)
+#
+---
+job: "extension"
+config:
+  name: "FLUX2_orph_light_balanced_v1.0"
+  process:
+    - type: "diffusion_trainer"
+      training_folder: "/app/ai-toolkit/output"
+      sqlite_db_path: "./aitk_db.db"
+      device: "cuda"
+      trigger_word: "orph_light"
+      performance_log_every: 10
+      network:
+        type: "lora"
+        linear: 128
+        linear_alpha: 64
+        conv: 64
+        conv_alpha: 32
+        lokr_full_rank: true
+        lokr_factor: -1
+        network_kwargs:
+          ignore_if_contains: []
+      save:
+        dtype: "bf16"
+        save_every: 1000   # ran at 1000 (12 ckpts ≈ 19 GB) — broad late plateau expected, peaks land on thousands, halves the pull for ComfyUI eval
+        max_step_saves_to_keep: 30
+        save_format: "diffusers"
+        push_to_hub: false
+      datasets:
+        - folder_path: "/app/ai-toolkit/datasets/orph_light"
+          mask_path: null
+          mask_min_value: 0.1
+          default_caption: ""
+          caption_ext: "txt"
+          caption_dropout_rate: 0.05
+          cache_latents_to_disk: false
+          is_reg: false
+          network_weight: 1
+          resolution:
+            - 512
+            - 768
+            - 1024
+            - 256
+            - 1280
+            - 1328
+            - 1536
+            - 2048
+          controls: []
+          shrink_video_to_frames: true
+          num_frames: 1
+          flip_x: false
+          flip_y: false
+          num_repeats: 1
+          control_path_1: null
+          control_path_2: null
+          control_path_3: null
+      train:
+        batch_size: 1
+        bypass_guidance_embedding: false
+        steps: 12000
+        gradient_accumulation: 1
+        train_unet: true
+        train_text_encoder: false
+        gradient_checkpointing: true
+        noise_scheduler: "flowmatch"
+        optimizer: "adamw8bit"
+        timestep_type: "weighted"
+        content_or_style: "balanced"
+        optimizer_params:
+          weight_decay: 0.00001
+        unload_text_encoder: false
+        cache_text_embeddings: false
+        lr: 0.0001
+        ema_config:
+          use_ema: false
+          ema_decay: 0.99
+        skip_first_sample: false
+        force_first_sample: false
+        disable_sampling: true
+        dtype: "bf16"
+        diff_output_preservation: false
+        diff_output_preservation_multiplier: 1
+        diff_output_preservation_class: "person"
+        switch_boundary_every: 1
+        loss_type: "mse"
+      logging:
+        log_every: 1
+        use_ui_logger: true
+      model:
+        name_or_path: "black-forest-labs/FLUX.2-dev"
+        quantize: true
+        qtype: "qfloat8"
+        quantize_te: true
+        qtype_te: "qfloat8"
+        arch: "flux2"
+        low_vram: false
+        model_kwargs:
+          match_target_res: false
+        layer_offloading: false
+        layer_offloading_text_encoder_percent: 1
+        layer_offloading_transformer_percent: 1
+      sample:
+        sampler: "flowmatch"
+        sample_every: 250
+        width: 1024
+        height: 1024
+        samples: []
+        neg: ""
+        seed: 42
+        walk_seed: true
+        guidance_scale: 4
+        sample_steps: 30
+        num_frames: 1
+        fps: 1
+meta:
+  name: "[name]"
+  version: "1.0"
