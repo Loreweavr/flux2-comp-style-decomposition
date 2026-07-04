@@ -1,10 +1,10 @@
 # Splitting a Flux 2 LoRA: Composition vs Style, and What Actually Separates
 
-*By Orph the Loreweaver. Funded by a Banodoco micro-grant that asked for honest results, positive and negative. This is both.*
+*By Orph the Loreweavr. Funded by a Banodoco micro-grant that asked for honest results, positive and negative. This is both.*
 
 ## The bet
 
-Take one image dataset. Train it twice with identical settings except a single flag, `content_or_style`, which biases the diffusion timesteps the LoRA learns from. Content mode trains on high-noise steps, where a generation's composition is decided. Style mode trains on low-noise steps, where surface and texture resolve. The bet was that this gives you two LoRAs that act as separate dials, one for composition and one for surface, and that you can recombine them at inference to compose a scene and then choose its look independently.
+Take one image dataset. Train it twice with identical settings except a single flag, `content_or_style`, which biases the diffusion timesteps the LoRA learns from. In `content` mode it trains on high-noise steps, where a generation's composition is decided. In `style` mode it trains on low-noise steps, where surface and texture resolve. The bet was that this gives you two LoRAs that act as separate dials, one for composition and one for surface, and that you can recombine them at inference to compose a scene and then choose its look independently.
 
 I should be upfront: the split itself isn't my idea. That high-noise steps set composition and low-noise steps set surface is documented behavior, not a discovery; ai-toolkit's `content_or_style` flag ships described in almost these words, and people have separated models into recombinable style and content LoRAs before, by picking specific network blocks rather than by biasing timesteps. So treat this as a personal bet, not a claim of novelty, and assume the premise is old news to plenty of readers. What I wanted was narrower and more practical: when you push the timestep split hard on Flux 2 and actually try to recombine the halves, what really comes apart, what doesn't, and where does it break? The interesting answer turned out not to be the split but which half carries the thing I was chasing.
 
@@ -127,7 +127,7 @@ I have not run this yet. The questions it raises: which conditioning mechanism h
 
 ## The control: one balanced LoRA, or two specialized?
 
-All of the above pits two specialized LoRAs and a handoff against each other. It left the obvious baseline untested: one LoRA trained in balanced mode, sampling the full timestep range, learning composition and surface together. If a single balanced LoRA could match the specialized style branch, the decomposition would be a fact about how diffusion timesteps carry composition versus surface, not a workflow anyone needs to run. So I trained it, capped at 12k steps, expecting it to converge *later* than either biased run since it has to reach competence on both axes at once.
+All of the above pits two specialized LoRAs and a handoff against each other. It left the obvious baseline untested: one LoRA trained in `balanced` mode, sampling the full timestep range, learning composition and surface together. If a single balanced LoRA could match the specialized style branch, the decomposition would be a fact about how diffusion timesteps carry composition versus surface, not a workflow anyone needs to run. So I trained it, capped at 12k steps, expecting it to converge *later* than either biased run since it has to reach competence on both axes at once.
 
 It converged earlier, and worse. The balanced LoRA overcooks by about 8k, sooner than the style run's ~10k and far sooner than the content run that stayed useful to 14k. Its usable window isn't just narrow, it's unstable: down the checkpoint ladder, 5k is acceptable, 6k is broken, 7k is acceptable, 8k is gone. No stable band, just isolated checkpoints flanked by broken neighbors. And the two that survive are weak. 5k is clean but photographic, a grayscale photo rather than value-painting, because with no coherent surface to learn it simply lets the base model's rendering show through. 7k has painterly character but reads eerie and only rates "acceptable." Past 10k the LoRA stops answering the prompt entirely: the same memorized image comes back no matter what you ask for, the same collapse the style run hit, arriving sooner. A third prompt, the out-of-distribution samurai, didn't even yield a survivor: no checkpoint on that subject was usable at all.
 
@@ -151,7 +151,8 @@ The reason is the same asymmetry, sharpened to its worst case. Balanced has to l
 
 The single thing I would tell anyone trying this: train your composition LoRA on a stylistically varied set and your style LoRA on a coherent one. They want opposite datasets. Trying to get both from one set gives you a strong composition LoRA, a partial style LoRA, and the lesson that value-painting was a style property the whole time.
 
-Orph
+Orph the Loreweavr — LoRA designer and researcher. Reach me at orph@loreweavr.com.
+
 ## License
 
 The article text, training configs, and ComfyUI workflow in this repo are released under the [MIT License](LICENSE). The figures are outputs of a FLUX.2-dev-derived LoRA, and the `style_8k` model is hosted separately; both carry Black Forest Labs' FLUX.2-dev non-commercial terms, which take precedence for those assets.
